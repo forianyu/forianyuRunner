@@ -6,4 +6,7 @@
     <color name="accent">#00E676</color>
     <color name="accent_stop">#FF5252</color>
     <color name="divider">#26FFFFFF</color>
+    <color name="text_tertiary">#6E6E6E</color>
+    <color name="card_bg">#0AFFFFFF</color>
+    <color name="card_border">#1AFFFFFF</color>
 </resources>

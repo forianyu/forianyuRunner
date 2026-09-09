@@ -16,7 +16,7 @@
         android:fillViewport="true"
         android:scrollbars="none"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/startButton"
+        app:layout_constraintBottom_toTopOf="@id/bottomButtonRow"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -101,6 +101,87 @@
                 android:textSize="24sp" />
         </LinearLayout>
 
+        <!-- Previous-stage / current-stage comparison, one row each. Only
+             shown while tracking - see MainActivity.updateStageDisplay(). -->
+        <LinearLayout
+            android:id="@+id/stageCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="10dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView style="@style/StageHeadFirst" android:text="@string/stage_col_label" />
+                <TextView style="@style/StageHead" android:text="@string/stage_col_start" />
+                <TextView style="@style/StageHead" android:text="@string/stage_col_end" />
+                <TextView style="@style/StageHead" android:text="@string/stage_col_duration" />
+                <TextView style="@style/StageHead" android:text="@string/stage_col_distance" />
+                <TextView style="@style/StageHead" android:text="@string/stage_col_speed" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/prevStageRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/StageCellFirst"
+                    android:text="@string/stage_prev_label"
+                    android:textColor="@color/text_secondary" />
+                <TextView android:id="@+id/prevStageStartText" style="@style/StageCell" />
+                <TextView android:id="@+id/prevStageEndText" style="@style/StageCell" />
+                <TextView android:id="@+id/prevStageDurationText" style="@style/StageCell" />
+                <TextView android:id="@+id/prevStageDistanceText" style="@style/StageCell" />
+                <TextView android:id="@+id/prevStageSpeedText" style="@style/StageCell" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/currentStageRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_stage_current"
+                android:orientation="horizontal"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    style="@style/StageCellFirst"
+                    android:text="@string/stage_current_label"
+                    android:textColor="@color/accent" />
+                <TextView
+                    android:id="@+id/currentStageStartText"
+                    style="@style/StageCell"
+                    android:textColor="@color/accent" />
+                <TextView
+                    style="@style/StageCell"
+                    android:text="@string/stage_in_progress"
+                    android:textColor="@color/accent" />
+                <TextView
+                    android:id="@+id/currentStageDurationText"
+                    style="@style/StageCell"
+                    android:textColor="@color/accent" />
+                <TextView
+                    android:id="@+id/currentStageDistanceText"
+                    style="@style/StageCell"
+                    android:textColor="@color/accent" />
+                <TextView
+                    android:id="@+id/currentStageSpeedText"
+                    style="@style/StageCell"
+                    android:textColor="@color/accent" />
+            </LinearLayout>
+        </LinearLayout>
+
         <Space
             android:layout_width="0dp"
             android:layout_height="0dp"
@@ -179,66 +260,49 @@
                     android:textColor="@color/accent"
                     android:text="-" />
             </LinearLayout>
-
-            <View style="@style/TableDivider" />
-
-            <LinearLayout style="@style/TableRow">
-
-                <TextView
-                    style="@style/TableLabel"
-                    android:text="@string/calorie_label" />
-
-                <TextView
-                    android:id="@+id/calorieValueText"
-                    style="@style/TableValue"
-                    android:text="0 kcal" />
-            </LinearLayout>
-
-            <View style="@style/TableDivider" />
-
-            <LinearLayout style="@style/TableRow">
-
-                <TextView
-                    style="@style/TableLabel"
-                    android:text="@string/fat_label" />
-
-                <TextView
-                    android:id="@+id/fatValueText"
-                    style="@style/TableValue"
-                    android:text="0.0 g" />
-            </LinearLayout>
-
-            <View style="@style/TableDivider" />
-
-            <LinearLayout style="@style/TableRow">
-
-                <TextView
-                    style="@style/TableLabel"
-                    android:text="@string/carb_protein_label" />
-
-                <TextView
-                    android:id="@+id/carbValueText"
-                    style="@style/TableValue"
-                    android:text="0.0 g" />
-            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
     </ScrollView>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/startButton"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
+    <LinearLayout
+        android:id="@+id/bottomButtonRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_marginBottom="10dp"
-        android:insetTop="0dp"
-        android:insetBottom="0dp"
-        android:text="@string/start"
-        android:textSize="20sp"
-        android:textColor="@color/bg_top"
-        app:backgroundTint="@color/accent"
-        app:cornerRadius="60dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nextStageButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="130dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="14dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="@string/next_stage"
+            android:textSize="15sp"
+            android:textColor="@color/accent"
+            android:visibility="gone"
+            app:cornerRadius="28dp"
+            app:strokeColor="@color/accent"
+            app:strokeWidth="1.5dp"
+            app:rippleColor="@color/accent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/startButton"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="@string/start"
+            android:textSize="20sp"
+            android:textColor="@color/bg_top"
+            app:backgroundTint="@color/accent"
+            app:cornerRadius="60dp" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

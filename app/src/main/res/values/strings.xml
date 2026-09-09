@@ -14,9 +14,27 @@
     <string name="weight_label">체중</string>
     <string name="weight_unit">kg</string>
     <string name="avg_speed_label">평균 속도 (최근 1분)</string>
-    <string name="calorie_label">칼로리</string>
-    <string name="fat_label">지방 환산</string>
-    <string name="carb_protein_label">탄수화물·단백질 환산</string>
     <string name="overall_avg_speed_label">전체 평균 시속</string>
     <string name="progress_announcement">지금까지 달린 거리는 %1$.2f 킬로미터, 평균 시속은 %2$.1f 킬로미터입니다.</string>
+
+    <string name="next_stage">다음 단계</string>
+    <string name="stage_col_label">단계</string>
+    <string name="stage_col_start">시작</string>
+    <string name="stage_col_end">종료</string>
+    <string name="stage_col_duration">시간</string>
+    <string name="stage_col_distance">거리(km)</string>
+    <string name="stage_col_speed">시속(km/h)</string>
+    <string name="stage_prev_label">이전</string>
+    <string name="stage_current_label">현재</string>
+    <string name="stage_in_progress">진행중</string>
+
+    <string name="result_title">러닝 결과</string>
+    <string name="result_subtitle_started_suffix">시작</string>
+    <string name="result_hero_caption">전체 거리 · 전체 시간 · %1$d단계</string>
+    <string name="result_calorie_label">소모 칼로리</string>
+    <string name="result_calorie_caption">체중 %1$dkg 기준</string>
+    <string name="result_weight_loss_label">추정 체중 감소</string>
+    <string name="result_weight_loss_caption">체지방 환산 (7,700kcal/kg)</string>
+    <string name="result_stage_list_title">단계별 기록</string>
+    <string name="result_stage_item_label">%1$d단계</string>
 </resources>

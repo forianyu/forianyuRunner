@@ -15,6 +15,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,11 +39,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private val clockFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
+    // Short form for the cramped stage comparison table - full HH:mm:ss
+    // doesn't fit its columns without wrapping (see updateStageDisplay()).
+    private val stageTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
     private var isTracking = false
     private var totalDistanceMeters = 0.0
     private var lastGoodLocation: Location? = null
     private var startElapsedRealtimeMs = 0L
+    private var sessionStartWallClockMs = 0L
     private var weightKg = DEFAULT_WEIGHT_KG
+
+    // Stages (단계): slices of the run split by "다음 단계" presses. completedStages
+    // holds everything closed out so far; the stageStart* fields describe the
+    // one still in progress (or, right after stop, the final one about to be
+    // closed - see stopTracking()).
+    private val completedStages = mutableListOf<StageResult>()
+    private var stageIndex = 1
+    private var stageStartElapsedRealtimeMs = 0L
+    private var stageStartWallClockMs = 0L
+    private var stageStartDistanceMeters = 0.0
 
     // Trailing 60-second (elapsedMs, cumulativeDistanceMeters) samples, oldest
     // first, used to compute a continuously-updated "average speed over the
@@ -66,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private val timerRunnable = object : Runnable {
         override fun run() {
             updateTimeDisplay()
+            updateStageDisplay()
             recordDistanceSampleAndUpdateAvgSpeed()
             checkTenMinuteAnnouncement()
             timerHandler.postDelayed(this, TIMER_TICK_MS)
@@ -102,6 +119,7 @@ class MainActivity : AppCompatActivity() {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         binding.startButton.setOnClickListener { onStartButtonClicked() }
+        binding.nextStageButton.setOnClickListener { advanceStage() }
 
         weightKg = loadSavedWeightKg()
         binding.weightInput.setText(weightKg.toInt().toString())
@@ -193,10 +211,19 @@ class MainActivity : AppCompatActivity() {
 
         isTracking = true
         startElapsedRealtimeMs = SystemClock.elapsedRealtime()
+        sessionStartWallClockMs = System.currentTimeMillis()
+        completedStages.clear()
+        stageIndex = 1
+        stageStartElapsedRealtimeMs = startElapsedRealtimeMs
+        stageStartWallClockMs = sessionStartWallClockMs
+        stageStartDistanceMeters = 0.0
+
         binding.startButton.text = getString(R.string.stop)
         binding.startButton.backgroundTintList =
             ContextCompat.getColorStateList(this, R.color.accent_stop)
         binding.statusText.setText(R.string.waiting_for_gps)
+        binding.nextStageButton.visibility = View.VISIBLE
+        updateStageDisplay()
 
         timerHandler.post(timerRunnable)
 
@@ -214,7 +241,18 @@ class MainActivity : AppCompatActivity() {
         binding.startButton.text = getString(R.string.start)
         binding.startButton.backgroundTintList =
             ContextCompat.getColorStateList(this, R.color.accent)
+        binding.nextStageButton.visibility = View.GONE
+        binding.stageCard.visibility = View.GONE
         updateOverallAvgSpeedDisplay()
+
+        val allStages = ArrayList(completedStages).apply { add(closeCurrentStage()) }
+        startActivity(
+            Intent(this, ResultActivity::class.java).apply {
+                putParcelableArrayListExtra(ResultActivity.EXTRA_STAGES, allStages)
+                putExtra(ResultActivity.EXTRA_SESSION_START_WALL_CLOCK_MS, sessionStartWallClockMs)
+                putExtra(ResultActivity.EXTRA_WEIGHT_KG, weightKg)
+            }
+        )
     }
 
     private fun resetStats() {
@@ -222,12 +260,63 @@ class MainActivity : AppCompatActivity() {
         lastGoodLocation = null
         speedHistory.clear()
         lastAnnounceElapsedMs = 0L
+        completedStages.clear()
         updateDistanceDisplay()
-        updateCalorieDisplay()
+        binding.stageCard.visibility = View.GONE
+        binding.nextStageButton.visibility = View.GONE
         binding.avgSpeedValueText.text = ZERO_SPEED_TEXT
         binding.overallAvgSpeedValueText.text = OVERALL_SPEED_PLACEHOLDER
         binding.timeValueText.text = getString(R.string.zero_time)
         binding.statusText.setText(R.string.waiting_for_gps)
+    }
+
+    /** Closes the in-progress stage into a [StageResult] snapshot as of right now. */
+    private fun closeCurrentStage(): StageResult {
+        val now = SystemClock.elapsedRealtime()
+        return StageResult(
+            index = stageIndex,
+            startWallClockMs = stageStartWallClockMs,
+            endWallClockMs = System.currentTimeMillis(),
+            distanceMeters = totalDistanceMeters - stageStartDistanceMeters,
+            durationMs = now - stageStartElapsedRealtimeMs
+        )
+    }
+
+    /** "다음 단계": closes the in-progress stage and starts a new one from here. */
+    private fun advanceStage() {
+        if (!isTracking) return
+        val closed = closeCurrentStage()
+        completedStages.add(closed)
+        stageIndex++
+        stageStartElapsedRealtimeMs = SystemClock.elapsedRealtime()
+        stageStartWallClockMs = System.currentTimeMillis()
+        stageStartDistanceMeters = totalDistanceMeters
+        updateStageDisplay()
+    }
+
+    private fun updateStageDisplay() {
+        if (!isTracking) {
+            binding.stageCard.visibility = View.GONE
+            return
+        }
+        binding.stageCard.visibility = View.VISIBLE
+
+        val prev = completedStages.lastOrNull()
+        binding.prevStageRow.visibility = if (prev != null) View.VISIBLE else View.GONE
+        if (prev != null) {
+            binding.prevStageStartText.text = stageTimeFormat.format(Date(prev.startWallClockMs))
+            binding.prevStageEndText.text = stageTimeFormat.format(Date(prev.endWallClockMs))
+            binding.prevStageDurationText.text = RunFormat.duration(prev.durationMs)
+            binding.prevStageDistanceText.text = RunFormat.distanceKmValue(prev.distanceMeters)
+            binding.prevStageSpeedText.text = RunFormat.speedKmhValue(prev.distanceMeters, prev.durationMs)
+        }
+
+        val currentDurationMs = SystemClock.elapsedRealtime() - stageStartElapsedRealtimeMs
+        val currentDistanceMeters = totalDistanceMeters - stageStartDistanceMeters
+        binding.currentStageStartText.text = stageTimeFormat.format(Date(stageStartWallClockMs))
+        binding.currentStageDurationText.text = RunFormat.duration(currentDurationMs)
+        binding.currentStageDistanceText.text = RunFormat.distanceKmValue(currentDistanceMeters)
+        binding.currentStageSpeedText.text = RunFormat.speedKmhValue(currentDistanceMeters, currentDurationMs)
     }
 
     /**
@@ -274,7 +363,6 @@ class MainActivity : AppCompatActivity() {
             totalDistanceMeters += deltaMeters
             lastGoodLocation = location
             updateDistanceDisplay()
-            updateCalorieDisplay()
         }
     }
 
@@ -368,25 +456,6 @@ class MainActivity : AppCompatActivity() {
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, ANNOUNCEMENT_UTTERANCE_ID)
     }
 
-    /**
-     * Running's energy cost per kilometer is close to constant regardless of
-     * pace (unlike walking), so kcal is estimated straight from distance and
-     * body weight rather than needing a pace-dependent MET table - a widely
-     * used rule of thumb for running expenditure.
-     *
-     * The gram equivalents aren't a claim about which fuel was actually
-     * burned; they just re-express the same energy using each macro's
-     * standard energy density (fat 9 kcal/g, carb/protein 4 kcal/g) as a more
-     * tangible reference point.
-     */
-    private fun updateCalorieDisplay() {
-        val distanceKm = totalDistanceMeters / 1000.0
-        val kcal = weightKg * distanceKm * KCAL_PER_KG_PER_KM
-        binding.calorieValueText.text = String.format(Locale.US, "%.0f kcal", kcal)
-        binding.fatValueText.text = String.format(Locale.US, "%.1f g", kcal / KCAL_PER_GRAM_FAT)
-        binding.carbValueText.text = String.format(Locale.US, "%.1f g", kcal / KCAL_PER_GRAM_CARB)
-    }
-
     private fun loadSavedWeightKg(): Double {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         return prefs.getFloat(KEY_WEIGHT_KG, DEFAULT_WEIGHT_KG.toFloat()).toDouble()
@@ -399,7 +468,6 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putFloat(KEY_WEIGHT_KG, weightKg.toFloat())
             .apply()
-        updateCalorieDisplay()
     }
 
     companion object {
@@ -435,12 +503,6 @@ class MainActivity : AppCompatActivity() {
         // ~43 km/h - well above sustainable running speed, so anything faster
         // is a GPS glitch (multipath/atmospheric jump), not a real step.
         private const val MAX_REALISTIC_SPEED_MPS = 12.0
-
-        // kcal burned per kg of body weight per km run - a standard running
-        // energy-expenditure rule of thumb (roughly constant across paces).
-        private const val KCAL_PER_KG_PER_KM = 1.036
-        private const val KCAL_PER_GRAM_FAT = 9.0
-        private const val KCAL_PER_GRAM_CARB = 4.0
 
         private const val PREFS_NAME = "runner_prefs"
         private const val KEY_WEIGHT_KG = "weight_kg"

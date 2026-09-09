@@ -29,4 +29,48 @@
         <item name="android:layout_height">1dp</item>
         <item name="android:background">@color/divider</item>
     </style>
+
+    <style name="StageHeadFirst">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">0.7</item>
+        <item name="android:textColor">@color/text_tertiary</item>
+        <item name="android:textSize">9sp</item>
+        <item name="android:gravity">start</item>
+    </style>
+
+    <style name="StageHead">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:textColor">@color/text_tertiary</item>
+        <item name="android:textSize">8sp</item>
+        <item name="android:gravity">end</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="StageCellFirst">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">0.7</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:gravity">start</item>
+    </style>
+
+    <style name="StageCell">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:textColor">#E0E0E0</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:gravity">end</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
 </resources>
