@@ -179,6 +179,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTracking() {
+        // Lint's permission check can't see through hasLocationPermission()
+        // called earlier in a different method, so it flags the call below
+        // as possibly unchecked. Re-checking right here also guards the
+        // real (if rare) case of the permission being revoked between that
+        // earlier check and this call.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, R.string.permission_denied, Toast.LENGTH_LONG).show()
+            return
+        }
+
         isTracking = true
         startElapsedRealtimeMs = SystemClock.elapsedRealtime()
         binding.startButton.text = getString(R.string.stop)
