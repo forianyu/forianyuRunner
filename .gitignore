@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+gradle-dist/
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Android Studio / build outputs
+app/build/
+build/
+*.apk
+*.aab
+
+# VSCode
+.vscode/

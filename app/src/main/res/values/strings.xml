@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">forianyuRunner</string>
+    <string name="start">시작</string>
+    <string name="stop">정지</string>
+    <string name="reset">초기화</string>
+    <string name="distance_unit">km</string>
+    <string name="waiting_for_gps">GPS 신호를 찾는 중…</string>
+    <string name="low_accuracy">정확도 낮음 (±%1$dm)</string>
+    <string name="permission_denied">위치 권한이 없으면 거리를 측정할 수 없습니다</string>
+    <string name="gps_disabled">GPS가 꺼져 있습니다. 설정에서 위치 서비스를 켜주세요</string>
+    <string name="open_location_settings">위치 설정 열기</string>
+    <string name="close">닫기</string>
+    <string name="zero_time">00:00:00</string>
+    <string name="weight_label">체중</string>
+    <string name="weight_unit">kg</string>
+    <string name="avg_speed_label">평균 속도 (최근 1분)</string>
+    <string name="calorie_label">칼로리</string>
+    <string name="fat_label">지방 환산</string>
+    <string name="carb_protein_label">탄수화물·단백질 환산</string>
+    <string name="overall_avg_speed_label">전체 평균 시속</string>
+    <string name="progress_announcement">지금까지 달린 거리는 %1$.2f 킬로미터, 평균 시속은 %2$.1f 킬로미터입니다.</string>
+</resources>
