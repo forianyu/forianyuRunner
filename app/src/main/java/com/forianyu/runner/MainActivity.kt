@@ -487,22 +487,25 @@ class MainActivity : AppCompatActivity() {
         private const val OVERALL_SPEED_PLACEHOLDER = "-"
 
         // GPS fixes reporting worse than this are noise, not position.
-        // Tightened alongside MIN_DISTANCE_METERS below: a lower noise floor
-        // only stays safe against stationary jitter if the fixes it's
-        // applied to are themselves reasonably precise.
         private const val MAX_ACCURACY_METERS = 15f
 
         // Below this, consecutive fixes while stationary look like "movement"
         // purely from GPS jitter; only count steps past this noise floor.
-        // Lowered from 3m now that MAX_ACCURACY_METERS is tighter - catches
-        // real movement sooner (less of a run's final few meters gets
-        // dropped as an uncounted sub-threshold tail) at the cost of letting
-        // slightly more stationary jitter through.
-        private const val MIN_DISTANCE_METERS = 1.5f
+        // Raised back from 1.5m to 3m: the lower value let indoor/degraded-GPS
+        // jitter accumulate into real-looking distance, which then showed up
+        // as wildly inflated 1-minute and 10-minute average speeds even
+        // though nobody was actually moving that fast.
+        private const val MIN_DISTANCE_METERS = 3.0f
 
-        // ~43 km/h - well above sustainable running speed, so anything faster
-        // is a GPS glitch (multipath/atmospheric jump), not a real step.
-        private const val MAX_REALISTIC_SPEED_MPS = 12.0
+        // ~25 km/h - generous even for a fast sprint finish, so anything
+        // faster between two fixes is a GPS glitch (multipath/atmospheric
+        // jump), not a real step. Lowered from 12.0 m/s (~43km/h): that
+        // ceiling was so far above real running speed that ordinary
+        // GPS jitter routinely snuck under it and got counted as legitimate
+        // movement, which is what produced impossible average-speed readings
+        // (e.g. a 1-minute window showing 20km/h from a mostly-stationary
+        // session).
+        private const val MAX_REALISTIC_SPEED_MPS = 7.0
 
         private const val PREFS_NAME = "runner_prefs"
         private const val KEY_WEIGHT_KG = "weight_kg"
