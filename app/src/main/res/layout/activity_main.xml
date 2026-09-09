@@ -252,6 +252,20 @@
 
                 <TextView
                     style="@style/TableLabel"
+                    android:text="@string/avg_speed_5min_label" />
+
+                <TextView
+                    android:id="@+id/avgSpeed5MinValueText"
+                    style="@style/TableValue"
+                    android:text="0.0 km/h" />
+            </LinearLayout>
+
+            <View style="@style/TableDivider" />
+
+            <LinearLayout style="@style/TableRow">
+
+                <TextView
+                    style="@style/TableLabel"
                     android:text="@string/overall_avg_speed_label" />
 
                 <TextView

@@ -45,7 +45,13 @@ class MainActivity : AppCompatActivity() {
 
     private var isTracking = false
     private var totalDistanceMeters = 0.0
+
+    // The last CONFIRMED point (anchor) and a fix that's arrived since but
+    // hasn't been judged yet - see handleNewLocation() for why confirmation
+    // needs to wait for the fix after it.
     private var lastGoodLocation: Location? = null
+    private var pendingLocation: Location? = null
+
     private var startElapsedRealtimeMs = 0L
     private var sessionStartWallClockMs = 0L
     private var weightKg = DEFAULT_WEIGHT_KG
@@ -243,6 +249,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColorStateList(this, R.color.accent)
         binding.nextStageButton.visibility = View.GONE
         binding.stageCard.visibility = View.GONE
+        flushPendingLocation()
         updateOverallAvgSpeedDisplay()
 
         val allStages = ArrayList(completedStages).apply { add(closeCurrentStage()) }
@@ -258,6 +265,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetStats() {
         totalDistanceMeters = 0.0
         lastGoodLocation = null
+        pendingLocation = null
         speedHistory.clear()
         lastAnnounceElapsedMs = 0L
         completedStages.clear()
@@ -265,6 +273,7 @@ class MainActivity : AppCompatActivity() {
         binding.stageCard.visibility = View.GONE
         binding.nextStageButton.visibility = View.GONE
         binding.avgSpeedValueText.text = ZERO_SPEED_TEXT
+        binding.avgSpeed5MinValueText.text = ZERO_SPEED_TEXT
         binding.overallAvgSpeedValueText.text = OVERALL_SPEED_PLACEHOLDER
         binding.timeValueText.text = getString(R.string.zero_time)
         binding.statusText.setText(R.string.waiting_for_gps)
@@ -322,48 +331,88 @@ class MainActivity : AppCompatActivity() {
     /**
      * Turns raw GPS fixes into a monotonically increasing distance total.
      *
-     * Two GPS-specific error sources would otherwise inflate the total: (1)
-     * position jitter while standing still, which [Location.distanceTo] would
-     * happily report as a few meters of "movement" every single fix, and (2)
-     * occasional multipath/atmospheric glitches that report an impossible
-     * jump. Low-accuracy fixes are dropped outright; among the rest, only
-     * movement past a small noise floor is accepted, and only if the implied
-     * speed is physically plausible for a runner - otherwise the fix is
-     * discarded without disturbing the last known-good anchor point, so a
-     * single bad sample can't drag the next real one along with it.
+     * Low-accuracy fixes are dropped outright. Among the rest, a fix is
+     * never trusted the moment it arrives - it's held as [pendingLocation]
+     * until the *next* fix comes in, and only then judged against the path
+     * from [lastGoodLocation] (the last confirmed point) through it to that
+     * next fix. A real multipath/atmospheric spike bulges out from the true
+     * path and then snaps back, so the detour it forces - (anchor→pending)
+     * + (pending→next), compared to the direct anchor→next distance - is
+     * far longer than the direct route. Genuine movement, whether a walk or
+     * a sprint or a car, stays close to a straight line over one fix
+     * interval, so its detour ratio stays near 1 regardless of how fast it
+     * actually is. This is what lets speed be judged by consistency with
+     * neighboring fixes instead of a flat per-fix speed ceiling, which had
+     * to be tuned low enough to catch jitter that it also caught anything
+     * faster than a run.
+     *
+     * Below the noise floor ([MIN_DISTANCE_METERS]), confirmed movement
+     * still isn't counted, nor does it advance the anchor - only pure GPS
+     * jitter while standing still would otherwise report a few meters of
+     * "movement" on every fix.
      */
     private fun handleNewLocation(location: Location) {
         if (!location.hasAccuracy() || location.accuracy > MAX_ACCURACY_METERS) {
             binding.statusText.text = getString(R.string.low_accuracy, location.accuracy.toInt())
             return
         }
+        binding.statusText.text = ""
 
-        val previous = lastGoodLocation
-        if (previous == null) {
+        val anchor = lastGoodLocation
+        if (anchor == null) {
             lastGoodLocation = location
-            binding.statusText.text = ""
             return
         }
 
-        val deltaMeters = previous.distanceTo(location)
-        val deltaSeconds = (location.elapsedRealtimeNanos - previous.elapsedRealtimeNanos) / 1_000_000_000.0
-        // A non-positive delta means this fix arrived out of chronological
-        // order relative to the last one (seen in practice with some
-        // chipsets' fused-location batching). Treating that as "0 speed"
-        // used to let it slide straight past the speed-plausibility check
-        // below, so a large position jump with a bogus timestamp could get
-        // added to the total in an instant - producing average speeds well
-        // above anything a person (or often a car) could actually reach.
-        if (deltaSeconds <= 0) return
-        val speedMps = deltaMeters / deltaSeconds
-        if (speedMps > MAX_REALISTIC_SPEED_MPS) return
+        val pending = pendingLocation
+        if (pending == null) {
+            pendingLocation = location
+            return
+        }
 
-        binding.statusText.text = ""
-        if (deltaMeters >= MIN_DISTANCE_METERS) {
-            totalDistanceMeters += deltaMeters
-            lastGoodLocation = location
+        // Out-of-chronological-order fix (seen in practice with some
+        // chipsets' fused-location batching) - wait for a properly ordered
+        // one rather than judging pending against a bogus interval.
+        if (location.elapsedRealtimeNanos <= pending.elapsedRealtimeNanos) return
+
+        val anchorToPending = anchor.distanceTo(pending)
+        val pendingToNext = pending.distanceTo(location)
+        val anchorToNext = anchor.distanceTo(location)
+        val detourRatio = (anchorToPending + pendingToNext) / anchorToNext.coerceAtLeast(MIN_DETOUR_DENOMINATOR_METERS)
+
+        val anchorToPendingSeconds =
+            (pending.elapsedRealtimeNanos - anchor.elapsedRealtimeNanos) / 1_000_000_000.0
+        val impliedSpeedMps = if (anchorToPendingSeconds > 0) anchorToPending / anchorToPendingSeconds else Double.MAX_VALUE
+
+        // pending becomes the next round's anchor candidate either way -
+        // confirmed or rejected, `location` is now the freshest fix we have.
+        pendingLocation = location
+
+        val looksLikeRealMovement = detourRatio <= MAX_DETOUR_RATIO && impliedSpeedMps <= ABSOLUTE_MAX_SPEED_MPS
+        if (!looksLikeRealMovement) return
+
+        if (anchorToPending >= MIN_DISTANCE_METERS) {
+            totalDistanceMeters += anchorToPending
+            lastGoodLocation = pending
             updateDistanceDisplay()
         }
+    }
+
+    /**
+     * The last fix of a run never gets a follow-up fix to confirm it against,
+     * so without this its distance would just be silently dropped. Since
+     * we're finalizing anyway, commit it straight against the noise floor
+     * instead of waiting for a detour-ratio judgment that will never come.
+     */
+    private fun flushPendingLocation() {
+        val anchor = lastGoodLocation ?: return
+        val pending = pendingLocation ?: return
+        val distance = anchor.distanceTo(pending)
+        if (distance >= MIN_DISTANCE_METERS) {
+            totalDistanceMeters += distance
+            lastGoodLocation = pending
+        }
+        pendingLocation = null
     }
 
     private fun updateDistanceDisplay() {
@@ -385,8 +434,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Keeps a rolling ~60-second history of (time, cumulative distance) and
-     * reports the average speed across it, recomputed on every tick.
+     * Keeps a rolling ~5-minute history of (time, cumulative distance) and
+     * reports the average speed over both a 1-minute and a 5-minute trailing
+     * window from it, recomputed on every tick.
      *
      * The previous approach compared two fixed snapshots exactly 60 seconds
      * apart and only updated once a minute. Because distance itself only
@@ -396,27 +446,42 @@ class MainActivity : AppCompatActivity() {
      * could catch a burst right at its edge and read far too high, the next
      * could catch none and read 0, even though the runner's actual pace
      * barely changed. A continuously-sliding window doesn't eliminate the
-     * burstiness, but every reading now averages over a nearly-constant
-     * ~60-second span instead of comparing two arbitrary instants, so the
-     * burstiness mostly cancels out instead of swinging the result.
+     * burstiness, but every reading now averages over a nearly-constant span
+     * instead of comparing two arbitrary instants, so the burstiness mostly
+     * cancels out instead of swinging the result. The 1-minute window still
+     * jumps around more than most runners want from a glance-at-your-wrist
+     * number; the 5-minute one is added alongside it as a steadier read on
+     * pace, not a replacement.
      */
     private fun recordDistanceSampleAndUpdateAvgSpeed() {
         val elapsedMs = SystemClock.elapsedRealtime() - startElapsedRealtimeMs
         speedHistory.addLast(elapsedMs to totalDistanceMeters)
-        // Keep one entry at-or-before the 60s mark as the trailing-window anchor.
-        while (speedHistory.size > 1 && elapsedMs - speedHistory[1].first >= MINUTE_MS) {
+        // Keep only what the longer (5-minute) window needs; the 1-minute
+        // window is found within the same retained history below.
+        while (speedHistory.size > 1 && elapsedMs - speedHistory[1].first >= FIVE_MINUTE_MS) {
             speedHistory.removeFirst()
         }
 
-        val (oldestElapsedMs, oldestDistanceMeters) = speedHistory.first()
-        val windowSeconds = (elapsedMs - oldestElapsedMs) / 1000.0
+        binding.avgSpeedValueText.text = windowedSpeedText(elapsedMs, MINUTE_MS)
+        binding.avgSpeed5MinValueText.text = windowedSpeedText(elapsedMs, FIVE_MINUTE_MS)
+    }
+
+    /** Average speed over the trailing [windowMs] found within [speedHistory]. */
+    private fun windowedSpeedText(nowElapsedMs: Long, windowMs: Long): String {
+        // The newest retained sample that's still at-or-before the window's
+        // start, i.e. the anchor of the trailing window (falls back to the
+        // very first sample while the run itself is younger than the window).
+        val (anchorElapsedMs, anchorDistanceMeters) =
+            speedHistory.lastOrNull { nowElapsedMs - it.first >= windowMs } ?: speedHistory.first()
+
+        val windowSeconds = (nowElapsedMs - anchorElapsedMs) / 1000.0
         // Too short a window makes the result noise-dominated (a single GPS
         // burst can imply an absurd speed); wait for a more stable baseline.
-        if (windowSeconds < MIN_SPEED_WINDOW_SECONDS) return
+        if (windowSeconds < MIN_SPEED_WINDOW_SECONDS) return ZERO_SPEED_TEXT
 
-        val windowDistanceMeters = totalDistanceMeters - oldestDistanceMeters
+        val windowDistanceMeters = totalDistanceMeters - anchorDistanceMeters
         val speedKmh = (windowDistanceMeters / windowSeconds) * 3.6
-        binding.avgSpeedValueText.text = String.format(Locale.US, "%.1f km/h", speedKmh)
+        return String.format(Locale.US, "%.1f km/h", speedKmh)
     }
 
     /** Distance/time over the whole tracked run, shown once the run is stopped. */
@@ -480,6 +545,7 @@ class MainActivity : AppCompatActivity() {
         private const val TIMER_TICK_MS = 500L
         private const val CLOCK_TICK_MS = 1000L
         private const val MINUTE_MS = 60_000L
+        private const val FIVE_MINUTE_MS = 5 * MINUTE_MS
         private const val MIN_SPEED_WINDOW_SECONDS = 15.0
         private const val ANNOUNCE_INTERVAL_MS = 10 * MINUTE_MS
         private const val ANNOUNCEMENT_UTTERANCE_ID = "progress_announcement"
@@ -491,21 +557,33 @@ class MainActivity : AppCompatActivity() {
 
         // Below this, consecutive fixes while stationary look like "movement"
         // purely from GPS jitter; only count steps past this noise floor.
-        // Raised back from 1.5m to 3m: the lower value let indoor/degraded-GPS
-        // jitter accumulate into real-looking distance, which then showed up
-        // as wildly inflated 1-minute and 10-minute average speeds even
-        // though nobody was actually moving that fast.
         private const val MIN_DISTANCE_METERS = 3.0f
 
-        // ~25 km/h - generous even for a fast sprint finish, so anything
-        // faster between two fixes is a GPS glitch (multipath/atmospheric
-        // jump), not a real step. Lowered from 12.0 m/s (~43km/h): that
-        // ceiling was so far above real running speed that ordinary
-        // GPS jitter routinely snuck under it and got counted as legitimate
-        // movement, which is what produced impossible average-speed readings
-        // (e.g. a 1-minute window showing 20km/h from a mostly-stationary
-        // session).
-        private const val MAX_REALISTIC_SPEED_MPS = 7.0
+        // How much longer the anchor→pending→next path can be than the
+        // direct anchor→next distance before pending is treated as a
+        // multipath/atmospheric spike rather than real movement. A real
+        // spike bulges out and snaps back, roughly doubling (or worse) the
+        // path length for that one fix; genuine movement - at a walk, a
+        // sprint, or driving - stays close to a straight line over a single
+        // fix interval, so its ratio sits near 1 regardless of speed. This
+        // is what replaced a flat per-fix speed ceiling: that ceiling had to
+        // be tuned low enough to reject jitter that it also rejected
+        // anything faster than a run (e.g. a car). Needs real-world tuning
+        // once there's outdoor GPS data to check it against.
+        private const val MAX_DETOUR_RATIO = 1.3
+
+        // Guards the detour-ratio math against a near-zero anchor→next
+        // distance (anchor and next fix essentially the same point) turning
+        // a real spike-and-snap-back into a division by ~0 instead of the
+        // very large ratio it should read as.
+        private const val MIN_DETOUR_DENOMINATOR_METERS = 1.0f
+
+        // A last-resort sanity ceiling, not a running-speed limit like the
+        // per-fix check it replaced: catches only fixes so far off (e.g. a
+        // GPS teleport from a timestamp glitch) that even two consecutive
+        // bad fixes agreeing with each other would otherwise pass the
+        // detour-ratio check. 300 km/h.
+        private const val ABSOLUTE_MAX_SPEED_MPS = 83.3
 
         private const val PREFS_NAME = "runner_prefs"
         private const val KEY_WEIGHT_KG = "weight_kg"

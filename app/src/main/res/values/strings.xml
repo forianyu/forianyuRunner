@@ -14,6 +14,7 @@
     <string name="weight_label">체중</string>
     <string name="weight_unit">kg</string>
     <string name="avg_speed_label">평균 속도 (최근 1분)</string>
+    <string name="avg_speed_5min_label">평균 속도 (최근 5분)</string>
     <string name="overall_avg_speed_label">전체 평균 시속</string>
     <string name="progress_announcement">지금까지 달린 거리는 %1$.2f 킬로미터, 평균 시속은 %2$.1f 킬로미터입니다.</string>
 
