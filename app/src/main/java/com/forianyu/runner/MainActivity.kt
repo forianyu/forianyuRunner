@@ -88,6 +88,13 @@ class MainActivity : AppCompatActivity() {
     private val timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
         override fun run() {
+            // Belt-and-suspenders: stopTracking() already removes this
+            // callback, but if a stray chain ever survives it (e.g. a
+            // second MainActivity instance from relaunching the app while
+            // an old one was still tracking in the background), this stops
+            // it from doing anything - including firing the 10-minute
+            // announcement - the moment tracking is no longer on.
+            if (!isTracking) return
             updateTimeDisplay()
             updateStageDisplay()
             recordDistanceSampleAndUpdateAvgSpeed()
@@ -232,6 +239,11 @@ class MainActivity : AppCompatActivity() {
         binding.nextStageButton.visibility = View.VISIBLE
         updateStageDisplay()
 
+        // Guards against ever having two overlapping tick chains - a
+        // rapid double-tap of the button, or a stale one somehow left
+        // over - which is what let the 10-minute announcement fire twice
+        // at once.
+        timerHandler.removeCallbacks(timerRunnable)
         timerHandler.post(timerRunnable)
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LOCATION_INTERVAL_MS)
@@ -245,6 +257,9 @@ class MainActivity : AppCompatActivity() {
         isTracking = false
         fusedLocationClient.removeLocationUpdates(locationCallback)
         timerHandler.removeCallbacks(timerRunnable)
+        // Cuts off a 10-minute announcement that happened to start right as
+        // stop was pressed, rather than letting it keep playing afterward.
+        tts?.stop()
         binding.startButton.text = getString(R.string.start)
         binding.startButton.backgroundTintList =
             ContextCompat.getColorStateList(this, R.color.accent)
