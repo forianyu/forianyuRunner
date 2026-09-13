@@ -38,4 +38,20 @@
     <string name="result_weight_loss_caption">체지방 환산 (7,700kcal/kg)</string>
     <string name="result_stage_list_title">단계별 기록</string>
     <string name="result_stage_item_label">%1$d단계</string>
+    <string name="view_stats_button">전체 통계 보기</string>
+
+    <string name="stats_title">통계</string>
+    <string name="stats_tab_day">일간</string>
+    <string name="stats_tab_week">주간</string>
+    <string name="stats_tab_month">월간</string>
+    <string name="stats_tab_year">연간</string>
+    <string name="stats_prev_period">이전 기간</string>
+    <string name="stats_next_period">다음 기간</string>
+    <string name="stats_total_distance_label">총 거리</string>
+    <string name="stats_total_duration_label">총 시간</string>
+    <string name="stats_total_calorie_label">총 칼로리</string>
+    <string name="stats_run_count_label">러닝 횟수</string>
+    <string name="stats_run_count_value">%1$d회</string>
+    <string name="stats_records_title">기록</string>
+    <string name="stats_empty_state">이 기간에 기록이 없습니다</string>
 </resources>

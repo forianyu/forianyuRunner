@@ -6,8 +6,14 @@ import android.os.Bundle
 import android.os.Parcelable
 import android.view.LayoutInflater
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.forianyu.runner.data.RunDatabase
+import com.forianyu.runner.data.RunRecord
 import com.forianyu.runner.databinding.ActivityResultBinding
 import com.forianyu.runner.databinding.ItemStageResultBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,6 +28,9 @@ class ResultActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.backButton.setOnClickListener { finish() }
+        binding.viewStatsButton.setOnClickListener {
+            startActivity(Intent(this, StatsActivity::class.java))
+        }
 
         val stages: List<StageResult> = intent.parcelableArrayList<StageResult>(EXTRA_STAGES) ?: emptyList()
         val sessionStartWallClockMs = intent.getLongExtra(EXTRA_SESSION_START_WALL_CLOCK_MS, 0L)
@@ -32,6 +41,25 @@ class ResultActivity : AppCompatActivity() {
         val distanceKm = totalDistanceMeters / 1000.0
         val kcal = weightKg * distanceKm * KCAL_PER_KG_PER_KM
         val weightLossGrams = kcal / KCAL_PER_KG_FAT * 1000.0
+
+        // Only on a fresh launch, not a config-change recreation, so a
+        // finished run is saved to history exactly once.
+        if (savedInstanceState == null) {
+            val record = RunRecord(
+                startWallClockMs = sessionStartWallClockMs,
+                endWallClockMs = stages.lastOrNull()?.endWallClockMs ?: sessionStartWallClockMs,
+                totalDistanceMeters = totalDistanceMeters,
+                totalDurationMs = totalDurationMs,
+                kcal = kcal,
+                weightKg = weightKg,
+                stageCount = stages.size
+            )
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    RunDatabase.getInstance(applicationContext).runRecordDao().insert(record)
+                }
+            }
+        }
 
         binding.resultSubtitleText.text =
             sessionDateFormat.format(Date(sessionStartWallClockMs)) + " " + getString(R.string.result_subtitle_started_suffix)
