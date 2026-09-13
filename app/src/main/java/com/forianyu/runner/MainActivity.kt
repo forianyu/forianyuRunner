@@ -46,11 +46,12 @@ class MainActivity : AppCompatActivity() {
     private var isTracking = false
     private var totalDistanceMeters = 0.0
 
-    // The last CONFIRMED point (anchor) and a fix that's arrived since but
-    // hasn't been judged yet - see handleNewLocation() for why confirmation
-    // needs to wait for the fix after it.
     private var lastGoodLocation: Location? = null
-    private var pendingLocation: Location? = null
+
+    // A short-horizon smoothed pace, in m/s, used to sanity-check each new
+    // fix against how fast the last few fixes actually moved - see
+    // handleNewLocation() for why this replaced a flat speed ceiling.
+    private var recentPaceMps = 0.0
 
     private var startElapsedRealtimeMs = 0L
     private var sessionStartWallClockMs = 0L
@@ -249,7 +250,6 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColorStateList(this, R.color.accent)
         binding.nextStageButton.visibility = View.GONE
         binding.stageCard.visibility = View.GONE
-        flushPendingLocation()
         updateOverallAvgSpeedDisplay()
 
         val allStages = ArrayList(completedStages).apply { add(closeCurrentStage()) }
@@ -265,7 +265,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetStats() {
         totalDistanceMeters = 0.0
         lastGoodLocation = null
-        pendingLocation = null
+        recentPaceMps = 0.0
         speedHistory.clear()
         lastAnnounceElapsedMs = 0L
         completedStages.clear()
@@ -331,24 +331,25 @@ class MainActivity : AppCompatActivity() {
     /**
      * Turns raw GPS fixes into a monotonically increasing distance total.
      *
-     * Low-accuracy fixes are dropped outright. Among the rest, a fix is
-     * never trusted the moment it arrives - it's held as [pendingLocation]
-     * until the *next* fix comes in, and only then judged against the path
-     * from [lastGoodLocation] (the last confirmed point) through it to that
-     * next fix. A real multipath/atmospheric spike bulges out from the true
-     * path and then snaps back, so the detour it forces - (anchor→pending)
-     * + (pending→next), compared to the direct anchor→next distance - is
-     * far longer than the direct route. Genuine movement, whether a walk or
-     * a sprint or a car, stays close to a straight line over one fix
-     * interval, so its detour ratio stays near 1 regardless of how fast it
-     * actually is. This is what lets speed be judged by consistency with
-     * neighboring fixes instead of a flat per-fix speed ceiling, which had
-     * to be tuned low enough to catch jitter that it also caught anything
-     * faster than a run.
+     * Low-accuracy fixes are dropped outright. Among the rest, every fix is
+     * judged against [recentPaceMps] - a smoothed estimate of how fast the
+     * last few fixes actually moved - rather than a flat speed ceiling: if
+     * the implied speed since the last point is no more than
+     * [SPIKE_MARGIN_MPS] above that recent pace, it's accepted as real
+     * movement (at a walk, a run, a bike, or driving - whatever that recent
+     * pace happens to be) and folded into the pace estimate. If it's far
+     * above - a GPS multipath/atmospheric spike - the raw jump is never
+     * trusted, but the elapsed time isn't thrown away either: that interval
+     * is credited with `recentPaceMps × elapsedSeconds`, i.e. "assume they
+     * kept going at their recent pace," so a run through a patch of bad
+     * signal degrades gracefully to an estimate instead of either inflating
+     * the total (trusting the spike) or stalling it near zero (discarding
+     * every fix that looks even a little off, which real GPS noise on a
+     * curving path does constantly at ordinary running speeds).
      *
-     * Below the noise floor ([MIN_DISTANCE_METERS]), confirmed movement
-     * still isn't counted, nor does it advance the anchor - only pure GPS
-     * jitter while standing still would otherwise report a few meters of
+     * Below the noise floor ([MIN_DISTANCE_METERS]), accepted movement still
+     * isn't counted, nor does it advance the anchor - only pure GPS jitter
+     * while standing still would otherwise report a few meters of
      * "movement" on every fix.
      */
     private fun handleNewLocation(location: Location) {
@@ -364,55 +365,30 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val pending = pendingLocation
-        if (pending == null) {
-            pendingLocation = location
-            return
-        }
-
+        val elapsedSeconds = (location.elapsedRealtimeNanos - anchor.elapsedRealtimeNanos) / 1_000_000_000.0
         // Out-of-chronological-order fix (seen in practice with some
-        // chipsets' fused-location batching) - wait for a properly ordered
-        // one rather than judging pending against a bogus interval.
-        if (location.elapsedRealtimeNanos <= pending.elapsedRealtimeNanos) return
+        // chipsets' fused-location batching) - skip it rather than divide by
+        // a non-positive interval.
+        if (elapsedSeconds <= 0) return
 
-        val anchorToPending = anchor.distanceTo(pending)
-        val pendingToNext = pending.distanceTo(location)
-        val anchorToNext = anchor.distanceTo(location)
-        val detourRatio = (anchorToPending + pendingToNext) / anchorToNext.coerceAtLeast(MIN_DETOUR_DENOMINATOR_METERS)
+        val rawDistance = anchor.distanceTo(location)
+        val impliedSpeedMps = rawDistance / elapsedSeconds
 
-        val anchorToPendingSeconds =
-            (pending.elapsedRealtimeNanos - anchor.elapsedRealtimeNanos) / 1_000_000_000.0
-        val impliedSpeedMps = if (anchorToPendingSeconds > 0) anchorToPending / anchorToPendingSeconds else Double.MAX_VALUE
-
-        // pending becomes the next round's anchor candidate either way -
-        // confirmed or rejected, `location` is now the freshest fix we have.
-        pendingLocation = location
-
-        val looksLikeRealMovement = detourRatio <= MAX_DETOUR_RATIO && impliedSpeedMps <= ABSOLUTE_MAX_SPEED_MPS
-        if (!looksLikeRealMovement) return
-
-        if (anchorToPending >= MIN_DISTANCE_METERS) {
-            totalDistanceMeters += anchorToPending
-            lastGoodLocation = pending
+        if (impliedSpeedMps <= recentPaceMps + SPIKE_MARGIN_MPS) {
+            recentPaceMps = recentPaceMps + PACE_EMA_ALPHA * (impliedSpeedMps - recentPaceMps)
+            if (rawDistance >= MIN_DISTANCE_METERS) {
+                totalDistanceMeters += rawDistance
+                lastGoodLocation = location
+                updateDistanceDisplay()
+            }
+        } else {
+            // A spike: don't trust the jump, but don't lose the elapsed time
+            // either - and don't let this reading drag the pace estimate
+            // down or up, since it's exactly what we don't trust.
+            totalDistanceMeters += recentPaceMps * elapsedSeconds
+            lastGoodLocation = location
             updateDistanceDisplay()
         }
-    }
-
-    /**
-     * The last fix of a run never gets a follow-up fix to confirm it against,
-     * so without this its distance would just be silently dropped. Since
-     * we're finalizing anyway, commit it straight against the noise floor
-     * instead of waiting for a detour-ratio judgment that will never come.
-     */
-    private fun flushPendingLocation() {
-        val anchor = lastGoodLocation ?: return
-        val pending = pendingLocation ?: return
-        val distance = anchor.distanceTo(pending)
-        if (distance >= MIN_DISTANCE_METERS) {
-            totalDistanceMeters += distance
-            lastGoodLocation = pending
-        }
-        pendingLocation = null
     }
 
     private fun updateDistanceDisplay() {
@@ -559,31 +535,25 @@ class MainActivity : AppCompatActivity() {
         // purely from GPS jitter; only count steps past this noise floor.
         private const val MIN_DISTANCE_METERS = 3.0f
 
-        // How much longer the anchor→pending→next path can be than the
-        // direct anchor→next distance before pending is treated as a
-        // multipath/atmospheric spike rather than real movement. A real
-        // spike bulges out and snaps back, roughly doubling (or worse) the
-        // path length for that one fix; genuine movement - at a walk, a
-        // sprint, or driving - stays close to a straight line over a single
-        // fix interval, so its ratio sits near 1 regardless of speed. This
-        // is what replaced a flat per-fix speed ceiling: that ceiling had to
-        // be tuned low enough to reject jitter that it also rejected
-        // anything faster than a run (e.g. a car). Needs real-world tuning
-        // once there's outdoor GPS data to check it against.
-        private const val MAX_DETOUR_RATIO = 1.3
+        // How far above the recent smoothed pace ([recentPaceMps]) a fix's
+        // implied speed can be before it's treated as a GPS spike rather
+        // than real acceleration. This is a per-fix-interval allowance, not
+        // an absolute speed limit, so it applies the same whether the
+        // recent pace is a walk, a run, a bike, or a car: real acceleration
+        // (a runner's sprint, a car pulling onto a highway) changes speed by
+        // at most a few m/s over one sub-second fix interval, while a
+        // multipath/atmospheric spike typically implies tens of m/s more
+        // than whatever was actually happening. Needs real-world tuning
+        // once there's outdoor GPS data (running, cycling, driving) to
+        // check it against.
+        private const val SPIKE_MARGIN_MPS = 8.0
 
-        // Guards the detour-ratio math against a near-zero anchor→next
-        // distance (anchor and next fix essentially the same point) turning
-        // a real spike-and-snap-back into a division by ~0 instead of the
-        // very large ratio it should read as.
-        private const val MIN_DETOUR_DENOMINATOR_METERS = 1.0f
-
-        // A last-resort sanity ceiling, not a running-speed limit like the
-        // per-fix check it replaced: catches only fixes so far off (e.g. a
-        // GPS teleport from a timestamp glitch) that even two consecutive
-        // bad fixes agreeing with each other would otherwise pass the
-        // detour-ratio check. 300 km/h.
-        private const val ABSOLUTE_MAX_SPEED_MPS = 83.3
+        // How quickly recentPaceMps follows genuine speed changes: each
+        // accepted fix moves it this fraction of the way from its old value
+        // to the new one. Low enough to smooth out fix-to-fix noise, high
+        // enough to track a real pace change (speeding up, slowing down)
+        // within a couple of seconds.
+        private const val PACE_EMA_ALPHA = 0.3
 
         private const val PREFS_NAME = "runner_prefs"
         private const val KEY_WEIGHT_KG = "weight_kg"
